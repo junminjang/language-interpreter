@@ -1,4 +1,4 @@
-(* C style imperative language *)
+(* C style imperative language + garbage collection *)
 type exp =
   | UNIT
   | TRUE
@@ -74,8 +74,45 @@ let new_location () =
   counter := !counter + 1;
   !counter
 
+let remove_garbage = ref false (* garbage collection on/off *)
+
+let rec remove n lst =
+  match lst with
+  | [] -> []
+  | hd :: tl -> if n = hd then remove n tl else hd :: remove n tl
+
+let rec uniq lst =
+  match lst with [] -> [] | hd :: tl -> hd :: remove hd (uniq tl)
+
+let rec reach : env * mem * loc list -> loc list =
+ fun (env, mem, locs) ->
+  let locs = uniq locs in
+  let locs' = locs @ List.map (fun (x, l) -> l) env in
+  let locs' =
+    List.fold_left
+      (fun locs' l ->
+        let v = apply_mem mem l in
+        match v with
+        | Loc l' -> l' :: locs'
+        | Record r -> locs' @ List.map (fun (var, loc) -> loc) r
+        | Procedure (params, e, env') -> locs' @ reach (env', mem, [])
+        | _ -> locs')
+      locs' locs'
+  in
+  let locs' = uniq locs' in
+  if List.length locs' > List.length locs then reach (env, mem, locs') else locs
+
+let gc : env * mem -> mem =
+ fun (env, mem) ->
+  if not !remove_garbage then mem
+  else
+    let locs = reach (env, mem, []) in
+    let mem' = List.filter (fun (l, v) -> List.mem l locs) mem in
+    mem'
+
 let rec eval : exp -> env -> mem -> value * mem =
  fun exp env mem ->
+  let mem = gc (env, mem) in
   match exp with
   | CONST n -> (Int n, mem)
   | UNIT -> (Unit, mem)
@@ -261,4 +298,10 @@ let rec eval : exp -> env -> mem -> value * mem =
       | Loc l -> (v2, extend_mem (l, v2) mem2)
       | _ -> raise (Failure "Unimplemented"))
 
-let run : exp -> value * mem = fun pgm -> eval pgm empty_env empty_mem
+let run : exp -> bool -> bool -> value * mem =
+ fun pgm gc print_mem_size ->
+  let _ = remove_garbage := gc in
+  let v, mem = eval pgm empty_env empty_mem in
+  if print_mem_size then
+    print_endline (Printf.sprintf "Fianl mem size: %d" (List.length mem));
+  (v, mem)
