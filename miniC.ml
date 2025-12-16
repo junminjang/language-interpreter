@@ -1,4 +1,4 @@
-(* explicit reference language *)
+(* C style imperative language *)
 type exp =
   | UNIT
   | TRUE
@@ -32,6 +32,7 @@ type exp =
   | FIELDASSIGN of exp * var * exp (* E1.x := E2 *)
   | NEW of exp (* new E *)
   | ADDROF of var (* &x *)
+  | ADDROFREC of exp * var
   | DEREF of exp (* *E  *)
   | STORE of exp * exp (* *E1 := E2 *)
 
@@ -83,6 +84,9 @@ let rec eval : exp -> env -> mem -> value * mem =
   | VAR x ->
       let l = apply_env env x in
       (apply_mem mem l, mem)
+  | ASSIGN (x, e) ->
+      let v1, mem1 = eval e env mem in
+      (v1, extend_mem (apply_env env x, v1) mem1)
   | ADD (e1, e2) -> (
       let v1, mem1 = eval e1 env mem in
       let v2, mem2 = eval e2 env mem1 in
@@ -183,6 +187,14 @@ let rec eval : exp -> env -> mem -> value * mem =
           let l = new_location () in
           eval e (extend_env (x, l) env') (extend_mem (l, v2) mem2)
       | _ -> raise (Failure "Type error"))
+  | CALLREF (e, y) -> (
+      let v1, mem1 = eval e env mem in
+      let l = apply_env env y in
+      match v1 with
+      | Procedure (x, ef, env') ->
+          let v2, mem2 = eval ef (extend_env (x, l) env') mem1 in
+          (v2, mem2)
+      | _ -> raise (Failure "Type error"))
   | PRINT e ->
       let v, mem1 = eval e env mem in
       let rec to_string v =
@@ -225,6 +237,16 @@ let rec eval : exp -> env -> mem -> value * mem =
           let mem3 = extend_mem (apply_env r x, v2) mem2 in
           (v2, mem3)
       | _ -> raise (Failure "Type error"))
+  | NEW e ->
+      let v, mem1 = eval e env mem in
+      let l = new_location () in
+      (Loc l, extend_mem (l, v) mem1)
+  | ADDROF x -> (Loc (apply_env env x), mem)
+  | ADDROFREC (e, x) -> (
+      let v, mem1 = eval e env mem in
+      match v with
+      | Record r -> (Loc (apply_env r x), mem1)
+      | _ -> raise (Failure "Unimplemented"))
   | DEREF e -> (
       let v, mem1 = eval e env mem in
       match v with
@@ -232,5 +254,11 @@ let rec eval : exp -> env -> mem -> value * mem =
           let v1 = apply_mem mem1 l in
           (v1, mem1)
       | _ -> raise (Failure "Type error"))
+  | STORE (e1, e2) -> (
+      let v1, mem1 = eval e1 env mem in
+      let v2, mem2 = eval e2 env mem1 in
+      match v1 with
+      | Loc l -> (v2, extend_mem (l, v2) mem2)
+      | _ -> raise (Failure "Unimplemented"))
 
 let run : exp -> value * mem = fun pgm -> eval pgm empty_env empty_mem
