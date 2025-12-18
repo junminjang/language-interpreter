@@ -1,6 +1,6 @@
 ## Files
 1. `miniML.ml` 
-2. `miniML_with_gc.ml` (with garbage collection, call by reference)
+2. `miniML_with_gc.ml` (with garbage collection, supports call by reference)
 3. `typecheckerml.ml` (type checker implementation for subset of miniML) 
 
 ## Quick start
